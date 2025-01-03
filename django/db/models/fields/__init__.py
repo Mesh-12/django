@@ -392,7 +392,10 @@ class Field(RegisterLookupMixin):
 
         if (
             self.db_default is NOT_PROVIDED
-            or isinstance(self.db_default, Value)
+            or (
+                isinstance(self.db_default, Value)
+                or not hasattr(self.db_default, "resolve_expression")
+            )
             or databases is None
         ):
             return []
@@ -653,6 +656,8 @@ class Field(RegisterLookupMixin):
             path = path.replace("django.db.models.fields.json", "django.db.models")
         elif path.startswith("django.db.models.fields.proxy"):
             path = path.replace("django.db.models.fields.proxy", "django.db.models")
+        elif path.startswith("django.db.models.fields.composite"):
+            path = path.replace("django.db.models.fields.composite", "django.db.models")
         elif path.startswith("django.db.models.fields"):
             path = path.replace("django.db.models.fields", "django.db.models")
         # Return basic info - other fields should override this.
@@ -983,13 +988,7 @@ class Field(RegisterLookupMixin):
 
     def pre_save(self, model_instance, add):
         """Return field's value just before saving."""
-        value = getattr(model_instance, self.attname)
-        if not connection.features.supports_default_keyword_in_insert:
-            from django.db.models.expressions import DatabaseDefault
-
-            if isinstance(value, DatabaseDefault):
-                return self._db_default_expression
-        return value
+        return getattr(model_instance, self.attname)
 
     def get_prep_value(self, value):
         """Perform preliminary non-db specific value checks and conversions."""
@@ -1031,7 +1030,9 @@ class Field(RegisterLookupMixin):
         if self.db_default is not NOT_PROVIDED:
             from django.db.models.expressions import DatabaseDefault
 
-            return DatabaseDefault
+            return lambda: DatabaseDefault(
+                self._db_default_expression, output_field=self
+            )
 
         if (
             not self.empty_strings_allowed
@@ -1827,9 +1828,8 @@ class DecimalField(Field):
             )
         return decimal_value
 
-    def get_db_prep_save(self, value, connection):
-        if hasattr(value, "as_sql"):
-            return value
+    def get_db_prep_value(self, value, connection, prepared=False):
+        value = super().get_db_prep_value(value, connection, prepared)
         return connection.ops.adapt_decimalfield_value(
             self.to_python(value), self.max_digits, self.decimal_places
         )

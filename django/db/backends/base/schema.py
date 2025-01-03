@@ -14,6 +14,7 @@ from django.db.backends.ddl_references import (
 )
 from django.db.backends.utils import names_digest, split_identifier, truncate_name
 from django.db.models import NOT_PROVIDED, Deferrable, Index
+from django.db.models.fields.composite import CompositePrimaryKey
 from django.db.models.sql import Query
 from django.db.transaction import TransactionManagementError, atomic
 from django.utils import timezone
@@ -106,6 +107,7 @@ class BaseDatabaseSchemaEditor:
     sql_check_constraint = "CHECK (%(check)s)"
     sql_delete_constraint = "ALTER TABLE %(table)s DROP CONSTRAINT %(name)s"
     sql_constraint = "CONSTRAINT %(name)s %(constraint)s"
+    sql_pk_constraint = "PRIMARY KEY (%(columns)s)"
 
     sql_create_check = "ALTER TABLE %(table)s ADD CONSTRAINT %(name)s CHECK (%(check)s)"
     sql_delete_check = sql_delete_constraint
@@ -164,7 +166,7 @@ class BaseDatabaseSchemaEditor:
     def __exit__(self, exc_type, exc_value, traceback):
         if exc_type is None:
             for sql in self.deferred_sql:
-                self.execute(sql)
+                self.execute(sql, None)
         if self.atomic_migration:
             self.atomic.__exit__(exc_type, exc_value, traceback)
 
@@ -265,16 +267,34 @@ class BaseDatabaseSchemaEditor:
                 )
                 if autoinc_sql:
                     self.deferred_sql.extend(autoinc_sql)
-        constraints = [
-            constraint.constraint_sql(model, self)
-            for constraint in model._meta.constraints
-        ]
+        # The BaseConstraint DDL creation methods such as constraint_sql(),
+        # create_sql(), and delete_sql(), were not designed in a way that
+        # separate SQL from parameters which make their generated SQL unfit to
+        # be used in a context where parametrization is delegated to the
+        # backend.
+        constraint_sqls = []
+        if params:
+            # If parameters are present (e.g. a DEFAULT clause on backends that
+            # allow parametrization) defer constraint creation so they are not
+            # mixed with SQL meant to be parametrized.
+            for constraint in model._meta.constraints:
+                self.deferred_sql.append(constraint.create_sql(model, self))
+        else:
+            constraint_sqls.extend(
+                constraint.constraint_sql(model, self)
+                for constraint in model._meta.constraints
+            )
+
+        pk = model._meta.pk
+        if isinstance(pk, CompositePrimaryKey):
+            constraint_sqls.append(self._pk_constraint_sql(pk.columns))
+
         sql = self.sql_create_table % {
             "table": self.quote_name(model._meta.db_table),
             "definition": ", ".join(
-                str(constraint)
-                for constraint in (*column_sqls, *constraints)
-                if constraint
+                str(statement)
+                for statement in (*column_sqls, *constraint_sqls)
+                if statement
             ),
         }
         if model._meta.db_tablespace:
@@ -1582,11 +1602,22 @@ class BaseDatabaseSchemaEditor:
         )
 
     def _delete_index_sql(self, model, name, sql=None):
-        return Statement(
+        statement = Statement(
             sql or self.sql_delete_index,
             table=Table(model._meta.db_table, self.quote_name),
             name=self.quote_name(name),
         )
+
+        # Remove all deferred statements referencing the deleted index.
+        table_name = statement.parts["table"].table
+        index_name = statement.parts["name"]
+        for sql in list(self.deferred_sql):
+            if isinstance(sql, Statement) and sql.references_index(
+                table_name, index_name
+            ):
+                self.deferred_sql.remove(sql)
+
+        return statement
 
     def _rename_index_sql(self, model, old_name, new_name):
         return Statement(
@@ -1974,6 +2005,11 @@ class BaseDatabaseSchemaEditor:
                 if not exclude or name not in exclude:
                     result.append(name)
         return result
+
+    def _pk_constraint_sql(self, columns):
+        return self.sql_pk_constraint % {
+            "columns": ", ".join(self.quote_name(column) for column in columns)
+        }
 
     def _delete_primary_key(self, model, strict=False):
         constraint_names = self._constraint_names(model, primary_key=True)

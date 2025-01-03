@@ -115,7 +115,7 @@ below for information on how to set up your database correctly.
 PostgreSQL notes
 ================
 
-Django supports PostgreSQL 13 and higher. `psycopg`_ 3.1.8+ or `psycopg2`_
+Django supports PostgreSQL 14 and higher. `psycopg`_ 3.1.8+ or `psycopg2`_
 2.8.4+ is required, though the latest `psycopg`_ 3.1.8+ is recommended.
 
 .. note::
@@ -479,8 +479,6 @@ MySQL has a couple drivers that implement the Python Database API described in
 
 .. _MySQL Connector/Python: https://dev.mysql.com/downloads/connector/python/
 
-These drivers are thread-safe and provide connection pooling.
-
 In addition to a DB API driver, Django needs an adapter to access the database
 drivers from its ORM. Django provides an adapter for mysqlclient while MySQL
 Connector/Python includes `its own`_.
@@ -519,7 +517,7 @@ You can `create your database`_ using the command-line tools and this SQL:
 
 .. code-block:: sql
 
-  CREATE DATABASE <dbname> CHARACTER SET utf8;
+  CREATE DATABASE <dbname> CHARACTER SET utf8mb4;
 
 This ensures all tables and columns will use UTF-8 by default.
 
@@ -544,21 +542,21 @@ Django doesn't provide an API to change them.
 .. _documented thoroughly: https://dev.mysql.com/doc/refman/en/charset.html
 
 By default, with a UTF-8 database, MySQL will use the
-``utf8_general_ci`` collation. This results in all string equality
+``utf8mb4_0900_ai_ci`` collation. This results in all string equality
 comparisons being done in a *case-insensitive* manner. That is, ``"Fred"`` and
 ``"freD"`` are considered equal at the database level. If you have a unique
 constraint on a field, it would be illegal to try to insert both ``"aa"`` and
 ``"AA"`` into the same column, since they compare as equal (and, hence,
 non-unique) with the default collation. If you want case-sensitive comparisons
 on a particular column or table, change the column or table to use the
-``utf8_bin`` collation.
+``utf8mb4_0900_as_cs`` collation.
 
 Please note that according to `MySQL Unicode Character Sets`_, comparisons for
-the ``utf8_general_ci`` collation are faster, but slightly less correct, than
-comparisons for ``utf8_unicode_ci``. If this is acceptable for your application,
-you should use ``utf8_general_ci`` because it is faster. If this is not acceptable
-(for example, if you require German dictionary order), use ``utf8_unicode_ci``
-because it is more accurate.
+the ``utf8mb4_general_ci`` collation are faster, but slightly less correct,
+than comparisons for ``utf8mb4_unicode_ci``. If this is acceptable for your
+application, you should use ``utf8mb4_general_ci`` because it is faster. If
+this is not acceptable (for example, if you require German dictionary order),
+use ``utf8mb4_unicode_ci`` because it is more accurate.
 
 .. _MySQL Unicode Character Sets: https://dev.mysql.com/doc/refman/en/charset-unicode-sets.html
 
@@ -604,7 +602,7 @@ Here's a sample configuration which uses a MySQL option file::
     database = NAME
     user = USER
     password = PASSWORD
-    default-character-set = utf8
+    default-character-set = utf8mb4
 
 Several other `MySQLdb connection options`_ may be useful, such as ``ssl``,
 ``init_command``, and ``sql_mode``.
@@ -826,7 +824,7 @@ specific to SQLite that you should be aware of.
 Substring matching and case sensitivity
 ---------------------------------------
 
-For all SQLite versions, there is some slightly counter-intuitive behavior when
+For all SQLite versions, there is some slightly counterintuitive behavior when
 attempting to match some types of strings.  These are triggered when using the
 :lookup:`iexact` or :lookup:`contains` filters in Querysets. The behavior
 splits into two cases:
@@ -996,7 +994,7 @@ Oracle notes
 ============
 
 Django supports `Oracle Database Server`_ versions 19c and higher. Version
-1.3.2 or higher of the `oracledb`_ Python driver is required.
+2.3.0 or higher of the `oracledb`_ Python driver is required.
 
 .. deprecated:: 5.0
 
@@ -1106,6 +1104,46 @@ Example of a full DSN string::
         "(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=localhost)(PORT=1521))"
         "(CONNECT_DATA=(SERVICE_NAME=orclpdb1)))"
     )
+
+.. _oracle-pool:
+
+Connection pool
+---------------
+
+.. versionadded:: 5.2
+
+To use a connection pool with `oracledb`_, set ``"pool"`` to ``True`` in the
+:setting:`OPTIONS` part of your database configuration. This uses the driver's
+`create_pool()`_ default values::
+
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.oracle",
+            # ...
+            "OPTIONS": {
+                "pool": True,
+            },
+        },
+    }
+
+To pass custom parameters to the driver's `create_pool()`_  function, you can
+alternatively set ``"pool"`` to be a dict::
+
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.oracle",
+            # ...
+            "OPTIONS": {
+                "pool": {
+                    "min": 1,
+                    "max": 10,
+                    # ...
+                }
+            },
+        },
+    }
+
+.. _`create_pool()`: https://python-oracledb.readthedocs.io/en/latest/user_guide/connection_handling.html#connection-pooling
 
 Threaded option
 ---------------

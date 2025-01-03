@@ -116,6 +116,7 @@ class DatabaseFeatures(BaseDatabaseFeatures):
             "Oracle requires ORDER BY in row_number, ANSI:SQL doesn't.": {
                 "expressions_window.tests.WindowFunctionTests."
                 "test_row_number_no_ordering",
+                "prefetch_related.tests.PrefetchLimitTests.test_empty_order",
             },
             "Oracle doesn't support changing collations on indexed columns (#33671).": {
                 "migrations.test_operations.OperationTests."
@@ -135,6 +136,25 @@ class DatabaseFeatures(BaseDatabaseFeatures):
                     "Raises ORA-00600 on Oracle < 23c: internal error code.": {
                         "model_fields.test_jsonfield.TestQuerying."
                         "test_usage_in_subquery",
+                    },
+                }
+            )
+        if self.connection.is_pool:
+            skips.update(
+                {
+                    "Pooling does not support persistent connections": {
+                        "backends.base.test_base.ConnectionHealthChecksTests."
+                        "test_health_checks_enabled",
+                        "backends.base.test_base.ConnectionHealthChecksTests."
+                        "test_health_checks_enabled_errors_occurred",
+                        "backends.base.test_base.ConnectionHealthChecksTests."
+                        "test_health_checks_disabled",
+                        "backends.base.test_base.ConnectionHealthChecksTests."
+                        "test_set_autocommit_health_checks_enabled",
+                        "servers.tests.LiveServerTestCloseConnectionTest."
+                        "test_closes_connections",
+                        "backends.oracle.tests.TransactionalTests."
+                        "test_password_with_at_sign",
                     },
                 }
             )
@@ -202,10 +222,6 @@ class DatabaseFeatures(BaseDatabaseFeatures):
 
     @cached_property
     def supports_aggregation_over_interval_types(self):
-        return self.connection.oracle_version >= (23,)
-
-    @cached_property
-    def supports_bulk_insert_with_multiple_rows(self):
         return self.connection.oracle_version >= (23,)
 
     @cached_property

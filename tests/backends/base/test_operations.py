@@ -174,12 +174,6 @@ class DatabaseOperationTests(TestCase):
     def setUp(self):
         self.ops = BaseDatabaseOperations(connection=connection)
 
-    @skipIfDBFeature("supports_over_clause")
-    def test_window_frame_raise_not_supported_error(self):
-        msg = "This backend does not support window expressions."
-        with self.assertRaisesMessage(NotSupportedError, msg):
-            self.ops.window_frame_rows_start_end()
-
     @skipIfDBFeature("can_distinct_on_fields")
     def test_distinct_on_fields(self):
         msg = "DISTINCT ON fields is not supported by this database backend"
@@ -239,8 +233,9 @@ class DeprecationTests(TestCase):
             "DatabaseOperations.field_cast_sql() is deprecated use "
             "DatabaseOperations.lookup_cast() instead."
         )
-        with self.assertRaisesMessage(RemovedInDjango60Warning, msg):
+        with self.assertWarnsMessage(RemovedInDjango60Warning, msg) as ctx:
             base_ops.field_cast_sql("integer", "IntegerField")
+        self.assertEqual(ctx.filename, __file__)
 
     def test_field_cast_sql_usage_warning(self):
         compiler = Author.objects.all().query.get_compiler(connection.alias)
